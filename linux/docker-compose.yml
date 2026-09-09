@@ -1,0 +1,49 @@
+services:
+  sgcc-proxy-power:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sgcc-proxy-power:local
+    init: true
+    restart: unless-stopped
+    user: "${SGCC_UID:-1000}:${SGCC_GID:-1000}"
+    environment:
+      SGCC_HOST: ${SGCC_HOST:-0.0.0.0}
+      SGCC_PORT: ${SGCC_PORT:-8765}
+      SGCC_DATA_DIR: ${SGCC_DATA_DIR:-/data}
+      SGCC_HEADLESS: "true"
+      SGCC_BROWSER_EXECUTABLE: ${SGCC_BROWSER_EXECUTABLE:-}
+      SGCC_BROWSER_PROXY: ${SGCC_BROWSER_PROXY:-}
+      SGCC_TIMEZONE: ${SGCC_TIMEZONE:-Asia/Shanghai}
+      SGCC_SCAN_ENABLED: ${SGCC_SCAN_ENABLED:-true}
+      SGCC_SCAN_CRON: ${SGCC_SCAN_CRON:-0 3 * * *}
+      SGCC_SCAN_ON_START: ${SGCC_SCAN_ON_START:-false}
+      SGCC_DOWNLOAD_AFTER_SCAN: ${SGCC_DOWNLOAD_AFTER_SCAN:-true}
+      SGCC_DOWNLOAD_WORKERS: ${SGCC_DOWNLOAD_WORKERS:-4}
+      SGCC_REQUEST_TIMEOUT_SECONDS: ${SGCC_REQUEST_TIMEOUT_SECONDS:-90}
+      SGCC_NAVIGATION_TIMEOUT_SECONDS: ${SGCC_NAVIGATION_TIMEOUT_SECONDS:-60}
+      SGCC_SCAN_REQUEST_TIMEOUT_SECONDS: ${SGCC_SCAN_REQUEST_TIMEOUT_SECONDS:-15}
+      SGCC_PROVINCE_SCAN_TIMEOUT_SECONDS: ${SGCC_PROVINCE_SCAN_TIMEOUT_SECONDS:-45}
+      SGCC_MAX_REGION_CANDIDATES: ${SGCC_MAX_REGION_CANDIDATES:-12}
+      SGCC_MAX_DOWNLOAD_MB: ${SGCC_MAX_DOWNLOAD_MB:-200}
+      SGCC_ADMIN_TOKEN: ${SGCC_ADMIN_TOKEN:-}
+      HOME: /tmp
+      TZ: ${SGCC_TIMEZONE:-Asia/Shanghai}
+    ports:
+      - "${SGCC_BIND_ADDRESS:-127.0.0.1}:${SGCC_PORT:-8765}:8765"
+    volumes:
+      - ./data:/data
+    shm_size: 1gb
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json, os, urllib.request; port=os.getenv('SGCC_PORT', '8765'); r=urllib.request.urlopen(f'http://127.0.0.1:{port}/api/health', timeout=3); p=json.load(r); assert r.status == 200 and p.get('ok') is True"
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3

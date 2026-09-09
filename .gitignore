@@ -1,0 +1,44 @@
+# Runtime data and downloaded attachments
+**/data/*
+!**/data/.gitkeep
+!**/data/downloads/
+!**/data/downloads/.gitkeep
+**/provinces/
+**/provinces_verified/
+**/csg_documents/
+**/pdf/
+**/downloads/
+**/exports/
+
+# Browser profiles and local state
+**/.edge_profile*/
+**/*profile*/
+**/*_state.json
+**/*_report.json
+**/console_url.txt
+**/*.log
+
+# Python
+**/__pycache__/
+**/.pytest_cache/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Build and distribution artifacts
+*.exe
+*.zip
+build/
+build_v*/
+dist/
+*.spec
+
+# Large exploratory captures
+work/
+outputs/
+tests/
+work_csg_home.html
+app.js
+chunk-*.js
+arr_rot.txt

@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+data/*
+!data/.gitkeep
+!data/downloads/
+!data/downloads/.gitkeep
+*.zip
+
