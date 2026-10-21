@@ -35,7 +35,7 @@ class Settings:
     request_timeout_seconds: int = 90
     navigation_timeout_seconds: int = 60
     scan_request_timeout_seconds: int = 15
-    province_scan_timeout_seconds: int = 45
+    province_scan_timeout_seconds: int = 90
     max_region_candidates: int = 12
     max_download_mb: int = 200
     admin_token: str = ""
@@ -58,7 +58,7 @@ class Settings:
             request_timeout_seconds=_int_env("SGCC_REQUEST_TIMEOUT_SECONDS", 90),
             navigation_timeout_seconds=_int_env("SGCC_NAVIGATION_TIMEOUT_SECONDS", 60),
             scan_request_timeout_seconds=_int_env("SGCC_SCAN_REQUEST_TIMEOUT_SECONDS", 15),
-            province_scan_timeout_seconds=_int_env("SGCC_PROVINCE_SCAN_TIMEOUT_SECONDS", 45),
+            province_scan_timeout_seconds=_int_env("SGCC_PROVINCE_SCAN_TIMEOUT_SECONDS", 90),
             max_region_candidates=_int_env("SGCC_MAX_REGION_CANDIDATES", 12),
             max_download_mb=_int_env("SGCC_MAX_DOWNLOAD_MB", 200),
             admin_token=os.getenv("SGCC_ADMIN_TOKEN", "").strip(),
@@ -89,3 +89,4 @@ class Settings:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.download_dir.mkdir(parents=True, exist_ok=True)
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
+

@@ -14,7 +14,7 @@ from urllib.parse import urljoin, urlparse
 
 # Current province-wide tariff page.  The legacy route redirects to an older
 # component whose list stops before recently published months.
-PAGE_URL = "https://95598.cn/osgweb/ipElectrovalenceStandard?partNo=P2019"
+PAGE_URL = "https://95598.cn/osgweb/ipElectrovalenceStandard"
 SITE_ORIGIN = "https://95598.cn"
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".svg"}
 NETWORK_NAMES = {"sgcc": "国家电网", "csg": "南方电网"}
@@ -315,3 +315,5 @@ class CatalogStore:
                 if item.get("item_id") == iid:
                     return item
         return None
+
+

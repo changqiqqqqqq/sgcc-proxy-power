@@ -188,6 +188,71 @@ class AppService:
             return {"ok": True, "message": "所选文件均已获取", "count": 0}
         return self._start_download(items)
 
+    def parse_selected(self, item_ids: list[str]) -> dict[str, Any]:
+        """解析所选已下载文件中的代理购电价格数据并入库。"""
+        from .price_extract import EXTRACTORS, parse_file
+        from .prices import PriceStore
+
+        items = []
+        seen: set[str] = set()
+        for iid in item_ids:
+            if iid in seen:
+                continue
+            seen.add(iid)
+            item = self.store.get_item(iid)
+            if item:
+                items.append(item)
+        if not items:
+            return {"ok": False, "message": "没有找到所选资料。"}
+
+        store = PriceStore(self.settings.data_dir / "prices.db")
+        results = []
+        parsed = skipped = failed = 0
+        try:
+            for item in items:
+                title = str(item.get("title") or "")
+                local_file = str(item.get("local_file") or "")
+                province = str(item.get("province") or "")
+                fmt = str(item.get("format") or item.get("type") or "").lower()
+                entry = {"item_id": item.get("item_id"), "title": title, "province": province}
+                if not local_file or item.get("local_status") != "acquired":
+                    entry.update(status="skipped", reason="文件尚未下载")
+                    skipped += 1
+                elif province not in EXTRACTORS:
+                    entry.update(status="skipped", reason=f"暂无 {province} 的解析模板")
+                    skipped += 1
+                elif fmt not in ("pdf", "image", "png", "jpg", "jpeg"):
+                    entry.update(status="skipped", reason=f"暂不支持 {fmt or '该'} 格式")
+                    skipped += 1
+                else:
+                    source = (self.settings.download_dir / local_file).resolve()
+                    try:
+                        source.relative_to(self.settings.download_dir.resolve())
+                    except ValueError:
+                        source = None
+                    if source is None or not source.is_file():
+                        entry.update(status="failed", reason="本地文件不存在")
+                        failed += 1
+                    else:
+                        result = parse_file(source, province)
+                        store.save_result(result, network=str(item.get("network") or "sgcc"))
+                        entry.update(
+                            status=result.status,
+                            month=result.month,
+                            rows=len(result.rows),
+                            reason="；".join(result.errors[:2]) if result.errors else "",
+                        )
+                        if result.status == "failed":
+                            failed += 1
+                        else:
+                            parsed += 1
+                results.append(entry)
+        finally:
+            store.close()
+        message = f"解析完成：成功 {parsed}，跳过 {skipped}，失败 {failed}。"
+        LOGGER.info("parse selected: %s", message)
+        return {"ok": True, "message": message, "parsed": parsed, "skipped": skipped, "failed": failed, "results": results}
+
     def download_missing(self, province: str | None = None, network: str | None = None) -> dict[str, Any]:
         if self.download_thread and self.download_thread.is_alive():
             return {"ok": False, "message": "下载任务正在运行。"}

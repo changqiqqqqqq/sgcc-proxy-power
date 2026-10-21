@@ -262,6 +262,136 @@ def create_app(settings: Settings | None = None, service=None) -> FastAPI:
             raise HTTPException(status_code=404, detail="文件不存在")
         return FileResponse(target, filename=target.name)
 
+    # ---------------- 代理购电价格数据 ----------------
+
+    def _price_store():
+        from .prices import PriceStore
+
+        return PriceStore(settings.data_dir / "prices.db")
+
+    @app.get("/api/prices/summary")
+    def price_summary():
+        store = _price_store()
+        try:
+            return {"ok": True, **store.summary()}
+        finally:
+            store.close()
+
+    @app.get("/api/prices/query")
+    def price_query(
+        region: str = "",
+        month: str = "",
+        usage_type1: str = "",
+        voltage: str = "",
+        limit: int = 500,
+        offset: int = 0,
+    ):
+        store = _price_store()
+        try:
+            total, rows = store.query(
+                region=region.strip(),
+                month=month.strip(),
+                usage_type1=usage_type1.strip(),
+                voltage=voltage.strip(),
+                limit=min(max(1, limit), 5000),
+                offset=max(0, offset),
+            )
+            return {"ok": True, "total": total, "rows": rows}
+        finally:
+            store.close()
+
+    @app.get("/api/prices/export")
+    def price_export(
+        region: str = "",
+        month: str = "",
+        usage_type1: str = "",
+        voltage: str = "",
+    ):
+        import openpyxl
+
+        from .prices import EXPORT_HEADERS
+
+        store = _price_store()
+        try:
+            _total, rows = store.query(
+                region=region.strip(),
+                month=month.strip(),
+                usage_type1=usage_type1.strip(),
+                voltage=voltage.strip(),
+                limit=200000,
+            )
+        finally:
+            store.close()
+        if not rows:
+            raise HTTPException(status_code=404, detail="没有符合条件的数据")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "各省数据"
+        ws.append([header for _name, header in EXPORT_HEADERS])
+        for row in rows:
+            ws.append([row.get(name) if row.get(name) is not None else 0 for name, _h in EXPORT_HEADERS])
+        export_dir = settings.data_dir / "exports"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        handle, temporary = tempfile.mkstemp(prefix="代理购电价格-", suffix=".xlsx", dir=export_dir)
+        os.close(handle)
+        wb.save(temporary)
+        return FileResponse(
+            temporary,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=f"代理购电价格_{len(rows)}行.xlsx",
+            background=BackgroundTask(lambda: Path(temporary).unlink(missing_ok=True)),
+        )
+
+    @app.post("/api/prices/parse", dependencies=[Depends(require_admin)])
+    async def price_parse(payload: dict[str, Any] = Body(default_factory=dict)):
+        """解析本地已下载目录中的价格文件入库。payload: {region?, year?}"""
+        from .price_extract import EXTRACTORS
+        from .parse_prices import NETWORK_OF, SOURCE_DIRS, iter_region_files
+
+        year = int(payload.get("year") or 2026)
+        region_filter = str(payload.get("region") or "").strip()
+        regions = [region_filter] if region_filter else list(EXTRACTORS)
+        crawl_base = payload.get("crawl_base") or os.getenv("SGCC_CRAWL_BASE", "")
+        if not crawl_base:
+            raise HTTPException(status_code=400, detail="未配置爬取目录（SGCC_CRAWL_BASE）")
+        store = _price_store()
+        results = []
+        try:
+            for region in regions:
+                files = iter_region_files(Path(crawl_base), region, year)
+                for path in files:
+                    from .price_extract import parse_file
+
+                    result = parse_file(path, region)
+                    store.save_result(result, network=NETWORK_OF.get(region, "sgcc"))
+                    results.append({
+                        "file": path.name,
+                        "region": region,
+                        "month": result.month,
+                        "status": result.status,
+                        "rows": len(result.rows),
+                        "errors": result.errors,
+                    })
+        finally:
+            store.close()
+        return {"ok": True, "parsed": len(results), "results": results}
+
+    @app.post("/api/prices/parse-selected", dependencies=[Depends(require_admin)])
+    async def price_parse_selected(payload: dict[str, Any] = Body(default_factory=dict)):
+        """解析目录中所选的已下载文件入库。"""
+        item_ids = [str(value) for value in payload.get("item_ids", []) if str(value)] if isinstance(payload.get("item_ids"), list) else []
+        if not item_ids:
+            raise HTTPException(status_code=400, detail="请至少选择一个文件")
+        return await _invoke(lambda: service.parse_selected(item_ids))
+
+    @app.get("/api/prices/files")
+    def price_files():
+        store = _price_store()
+        try:
+            return {"ok": True, "files": store.all_file_status()}
+        finally:
+            store.close()
+
     return app
 
 

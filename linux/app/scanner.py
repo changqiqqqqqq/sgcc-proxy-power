@@ -51,53 +51,42 @@ EXTRACT_JS = r"""
 async (input) => {
   const region = input.region || input;
   const timeoutMs = Number(input.timeoutMs || 90000);
-  const withTimeout = (promise, label) => Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timeout`)), timeoutMs))
-  ]);
-  const vm = document.querySelector('#app')?.__vue__;
-  if (!vm?.$tools?.apiPost || !vm?.$api?.infoPublicNew || !vm?.$api?.infoPublicNewDetails) {
-    return {error:'current disclosure API not found'};
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const root = document.querySelector('#app')?.__vue__;
+  if (!root) return {error:'Vue root not found', items:[]};
+  const seen = new Set(); const candidates = [];
+  function walk(vm, depth=0) {
+    if (!vm || seen.has(vm) || depth > 50) return;
+    seen.add(vm);
+    if (typeof vm.getElectrovalenceType === 'function' && typeof vm.loadChild === 'function') candidates.push(vm);
+    (vm.$children || []).forEach(child => walk(child, depth + 1));
   }
-  const orgCode = String(region.orgCode || '');
-  if (!orgCode) return {error:'province organization code not found'};
+  walk(root);
+  const vm = candidates[0];
+  if (!vm) return {error:'electrovalence component not found', items:[]};
+  const codes = {provinceCode:String(region.provinceCode || ''), cityCode:String(region.cityCode || ''), countyCode:String(region.countyCode || '')};
+  if (!codes.provinceCode) return {error:'province code missing', items:[]};
+  for (const key of Object.keys(codes)) vm[key] = codes[key];
+  vm.listInformation = [];
+  try { vm.getElectrovalenceType(); } catch (e) { return {error:'getElectrovalenceType: '+String(e), items:[]}; }
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline && !(Array.isArray(vm.listInformation) && vm.listInformation.length)) await sleep(250);
+  const top = Array.isArray(vm.listInformation) ? vm.listInformation : [];
+  const category = top.find(x => /代理购电|代理/.test(String(x.classifyName || x.knoweleTitle || x.labelName || '')) && x.classifyId != null);
+  if (!category) return {error:'代理购电目录未找到', categories:top, items:[]};
+  let child = [];
   try {
-    const pageSize = 10;
-    let count = 0;
-    const rows = [];
-    for (let pageIndex=1; pageIndex<=200; pageIndex++) {
-      const response = await withTimeout(vm.$tools.apiPost({
-        pageIndex, pageSize, infoCategory:'03', orgCodeProvince:orgCode,
-        keyWords:'', orgCodeCity:'', orgCodeCounty:''
-      }, vm.$api.infoPublicNew), 'announcement request');
-      if (response?.code !== 1) throw new Error(response?.message || 'announcement request failed');
-      const pageRows = response?.data?.list || [];
-      count = Number(response?.data?.count || count || 0);
-      rows.push(...pageRows.filter(x => /代理.*购电|购电.*代理/.test(String(x.title || ''))));
-      if (!pageRows.length || pageIndex * pageSize >= count) break;
-    }
-    const items = [];
-    const itemSeen = new Set();
-    for (const row of rows) {
-      const response = await withTimeout(vm.$tools.apiPost({releaseInfoId:String(row.releaseInfoId || '')}, vm.$api.infoPublicNewDetails), 'detail request');
-      const detail = response?.data || {};
-      for (const attach of (detail.attachList || [])) {
-        const suffixMatch = String(attach.attachName || '').match(/(\.[a-zA-Z0-9]{2,5})$/);
-        const suffix = suffixMatch ? suffixMatch[1].toLowerCase() : '';
-        const attachId = String(attach.attachId || attach.attachUuid || '');
-        if (!attachId) continue;
-        const title = String(detail.title || row.title || '') + ((detail.attachList || []).length > 1 ? ' - ' + String(attach.attachName || attachId) : '');
-        const item = {electricpriceId:String(row.releaseInfoId || ''), electricpriceTitle:title,
-          electricpriceInfo:'/omg-static/' + attachId + suffix, updateAt:String(row.releaseTime || detail.releaseTime || ''),
-          attachName:String(attach.attachName || ''), attachId, releaseInfoId:String(row.releaseInfoId || ''), source:'P2019'};
-        if (!itemSeen.has(item.electricpriceInfo)) { itemSeen.add(item.electricpriceInfo); items.push(item); }
-      }
-    }
-    const category = {classifyId:'P2019-03', classifyName:'执行的电价和收费标准 / 代理购电', orgCodeProvince:orgCode};
-    return {categories:[category], category, matchedCategories:[category], items, source:'P2019', totalAnnouncements:count};
-  } catch (error) {
-    return {error:String(error), categories:[], category:null, items:[]};
-  }
+    const returned = vm.loadChild(category, null, x => { child = Array.isArray(x) ? x : []; });
+    if (returned && typeof returned.then === 'function') { const value = await returned; if (Array.isArray(value)) child = value; }
+  } catch (e) { return {error:'loadChild: '+String(e), category, items:[]}; }
+  while (Date.now() < deadline && !child.length) await sleep(250);
+  const items = child.map(x => ({
+    electricpriceTitle:String(x.electricpriceTitle || x.knoweleTitle || x.className || x.labelName || ''),
+    electricpriceInfo:String(x.electricpriceInfo || x.pdfAddress || x.classContentUrl || x.classContent || ''),
+    updateAt:String(x.updateAt || x.releaseTime || ''),
+    electricpriceId:String(x.electricpriceId || x.id || ''), raw:x
+  })).filter(x => x.electricpriceTitle && x.electricpriceInfo);
+  return {category, categories:[category], items, source:'electrovalenceStandard'};
 }
 """
 
@@ -224,6 +213,7 @@ class Scanner:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError("单省页面准备超时")
+            page.wait_for_timeout(1500)
             self._wait_ready(page, remaining)
 
     @staticmethod
@@ -382,3 +372,7 @@ class Scanner:
             "source": PAGE_URL,
             "results": results,
         }
+
+
+
+
